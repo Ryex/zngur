@@ -170,3 +170,56 @@ Test nested Ref<T> where T is #heap_allocated and auto field offsets -- started
 [main.cpp:192] ::rust::Ref<int32_t>(fb.fizz.buzz_3) = 71
 Test nested Ref<T> where T is #heap_allocated and auto field offsets -- finished
 
+Test #layout_conservative -- started
+[main.cpp:202] c_layout = ConservativeLayoutType {
+    field1: 3.14159,
+    field2: 42,
+    field3: "A string at some unknown offset",
+}
+Rust( size = 32 , align = 8 )
+c++( size = 48 , align = 8 )
+[main.cpp:214] layouts = [
+    ConservativeLayoutType {
+        field1: 3.14159,
+        field2: 42,
+        field3: "A string at some unknown offset",
+    },
+    ConservativeLayoutType {
+        field1: 2.71828,
+        field2: 1000,
+        field3: "Another test string",
+    },
+]
+[main.cpp:215] layouts.get(0) = Some(
+    ConservativeLayoutType {
+        field1: 3.14159,
+        field2: 42,
+        field3: "A string at some unknown offset",
+    },
+)
+[main.cpp:216] layouts.get(1) = Some(
+    ConservativeLayoutType {
+        field1: 2.71828,
+        field2: 1000,
+        field3: "Another test string",
+    },
+)
+[main.cpp:217] layouts.get(1).unwrap() = ConservativeLayoutType {
+    field1: 2.71828,
+    field2: 1000,
+    field3: "Another test string",
+}
+[main.cpp:219] layouts = [
+    ConservativeLayoutType {
+        field1: 3.14159,
+        field2: 42,
+        field3: "A string at some unknown offset",
+    },
+    ConservativeLayoutType {
+        field1: 2.71828,
+        field2: 10,
+        field3: "Another test string",
+    },
+]
+Test #layout_conservative -- finished
+
