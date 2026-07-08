@@ -178,7 +178,6 @@ macro_rules! __zngur_str_as_array {
 }
 
 pub const fn __zngur_usize_num_digits(val: usize) -> usize {
-    // docs currently say 64bit only but that's a bug
     if val == 0 { 1 } else { val.ilog10() as usize + 1 }
 }
 
@@ -216,47 +215,52 @@ macro_rules! __zngur_usize_to_str {
         const VAL: usize = $x;
         const ARR: [u8; __zngur_usize_num_digits(VAL)] = __zngur_usize_to_digit_array(VAL);
         // SAFETY: `ARR` is an ascii byte array which is utf8 compliant
-        const STR: &str = unsafe { str::from_utf8_unchecked(&ARR) };
+        const STR: &str = unsafe { ::core::str::from_utf8_unchecked(&ARR) };
         STR
     }};
 }
 
-pub const fn __zngur_const_str_array_concat<const T: usize, const N: usize, const M: usize>(
-    x: [u8; N],
-    y: [u8; M],
-) -> [u8; T] {
-    ::core::assert!(N + M == T);
-    let mut arr: [u8; T] = [0; T];
-    let mut i = 0;
-    while i < N {
-        arr[i] = x[i];
-        i += 1;
+pub const fn __zngur_const_str_sum_lengths(strs: &'static [&'static str]) -> usize {
+    let ::core::ops::Range { mut start, end } = 0..strs.len();
+    let mut sum = 0usize;
+    while start < end {
+        let i = start;
+        start += 1;
+        sum += strs[i].len();
     }
-    while i - N < M {
-        arr[i] = y[i - N];
-        i += 1;
+    sum
+}
+
+pub const fn __zngur_const_concat_strs<const N: usize>(strs: &'static [&'static str]) -> [u8; N] {
+    let mut arr = [0u8; N];
+    let mut arr_i = 0usize;
+    let ::core::ops::Range { mut start, end } = 0..strs.len();
+    while start < end {
+        let i = start;
+        start += 1;
+        let slice = strs[i].as_bytes();
+        {
+            let ::core::ops::Range { mut start, end } = 0..slice.len();
+            while start < end {
+                let j = start;
+                start += 1;
+                arr[arr_i] = slice[j];
+                arr_i += 1;
+            }
+        }
     }
     arr
 }
 
 macro_rules! __zngur_const_str_concat {
-
-    ( $x:expr, $y:expr $(,)? ) => {{
-        const X: &str = $x;
-        const Y: &str = $y;
-        const LEN: usize = X.len() + Y.len();
-        const ARR: [u8; LEN] = __zngur_const_str_array_concat::<LEN, {X.len()}, {Y.len()}>(
-            __zngur_str_as_array!(X),
-            __zngur_str_as_array!(Y),
-        );
-        // SAFETY: `ARR` is an concatenated utf8 byte array built from validated `const str&`
-        const STR: &str =  unsafe { str::from_utf8_unchecked(&ARR) };
+    ( $x:expr, $($rest:expr),+ $(,)?  ) => {{
+        const STRS: &'static [&'static str] = & [ $x, $($rest),+ ];
+        const LEN: usize = __zngur_const_str_sum_lengths(STRS);
+        const ARR: [u8; LEN] = __zngur_const_concat_strs(STRS);
+        // SAFETY: `ARR` is an concatenated utf8 byte array built from validated `const &'static str`
+        const STR: &str =  unsafe { ::core::str::from_utf8_unchecked(&ARR) };
         STR
     }};
-    ( $x:expr, $y:expr, $($rest:expr),+ $(,)? ) => {
-        __zngur_const_str_concat!($x, __zngur_const_str_concat!( $y, $($rest),+ ))
-    };
-
 }
 
 macro_rules! __zngur_assert_is_copy {

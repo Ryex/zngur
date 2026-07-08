@@ -82,6 +82,7 @@ sptl
 sref
 ssize
 staticlib
+strs
 strvec
 stmnt
 undropped
