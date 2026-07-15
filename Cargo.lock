@@ -3,13 +3,6 @@
 version = 4
 
 [[package]]
-name = "aggregation"
-version = "0.10.0"
-dependencies = [
- "packet",
-]
-
-[[package]]
 name = "aho-corasick"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -168,7 +161,7 @@ dependencies = [
 name = "benchmark"
 version = "0.10.0"
 dependencies = [
- "build-rs",
+ "build-rs 0.1.2",
  "cc",
  "criterion",
  "zngur",
@@ -200,6 +193,15 @@ name = "build-rs"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b00b8763668c99f8d9101b8a0dd82106f58265464531a79b2cef0d9a30c17dd2"
+
+[[package]]
+name = "build-rs"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe808acca98fccf920154ee7833e791bfb683299be4aae7ec222ddffad8cd4f8"
+dependencies = [
+ "unicode-ident",
+]
 
 [[package]]
 name = "bumpalo"
@@ -486,7 +488,7 @@ version = "0.10.0"
 name = "example-cpp-inheritance"
 version = "0.10.0"
 dependencies = [
- "build-rs",
+ "build-rs 0.1.2",
  "cc",
  "cpp_inherit",
  "zngur",
@@ -497,7 +499,7 @@ dependencies = [
 name = "example-cxx_demo"
 version = "0.10.0"
 dependencies = [
- "build-rs",
+ "build-rs 0.1.2",
  "cc",
  "zngur",
 ]
@@ -506,7 +508,7 @@ dependencies = [
 name = "example-cxx_demo_split"
 version = "0.10.0"
 dependencies = [
- "build-rs",
+ "build-rs 0.1.2",
  "cc",
  "zngur",
 ]
@@ -518,16 +520,6 @@ version = "0.10.0"
 [[package]]
 name = "example-memory_management"
 version = "0.10.0"
-
-[[package]]
-name = "example-multiple-modules"
-version = "0.10.0"
-dependencies = [
- "aggregation",
- "packet",
- "processor",
- "receiver",
-]
 
 [[package]]
 name = "example-raw-pointer"
@@ -570,7 +562,7 @@ version = "0.10.0"
 name = "example-stack-owned"
 version = "0.10.0"
 dependencies = [
- "build-rs",
+ "build-rs 0.1.2",
  "cc",
  "zngur",
  "zngur-lib",
@@ -588,7 +580,7 @@ version = "0.10.0"
 name = "example-tutorial_cpp"
 version = "0.10.0"
 dependencies = [
- "build-rs",
+ "build-rs 0.3.4",
  "cc",
  "zngur",
 ]
@@ -597,7 +589,7 @@ dependencies = [
 name = "example-unsafe_fns"
 version = "0.10.0"
 dependencies = [
- "build-rs",
+ "build-rs 0.1.2",
  "cc",
  "zngur",
 ]
@@ -889,10 +881,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
-name = "packet"
-version = "0.10.0"
-
-[[package]]
 name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -933,14 +921,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
-]
-
-[[package]]
-name = "processor"
-version = "0.10.0"
-dependencies = [
- "aggregation",
- "receiver",
 ]
 
 [[package]]
@@ -990,13 +970,6 @@ checksum = "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91"
 dependencies = [
  "crossbeam-deque",
  "crossbeam-utils",
-]
-
-[[package]]
-name = "receiver"
-version = "0.10.0"
-dependencies = [
- "packet",
 ]
 
 [[package]]
@@ -1585,14 +1558,6 @@ name = "zngur"
 version = "0.10.0"
 dependencies = [
  "zngur-generator",
-]
-
-[[package]]
-name = "zngur-autozng"
-version = "0.10.0"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]

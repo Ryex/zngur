@@ -5,7 +5,6 @@ members = [
     "zngur-def",
     "zngur-generator",
     "zngur-parser",
-    "zngur-autozng",
     "examples/*",
     "xtask",
     "benchmark",
@@ -13,7 +12,10 @@ members = [
 ]
 # Exclude tutorial-wasm32 from default workspace builds since it requires extra dependencies
 exclude = [
+    "zngur-autozng",
     "examples/tutorial-wasm32",
+    "examples/multiple_modules",
+    "examples/multiple_zngur_files"
 ]
 resolver = "2"
 
