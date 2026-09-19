@@ -3,6 +3,9 @@ use std::fmt::Display;
 use indexmap::IndexMap;
 use itertools::Itertools;
 
+#[cfg(feature = "printing")]
+pub mod printing;
+
 mod merge;
 pub use merge::{Merge, MergeFailure, MergeResult};
 
@@ -327,18 +330,24 @@ impl Display for RustTrait {
     }
 }
 
+impl Display for PrimitiveRustType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PrimitiveRustType::Uint(s) => write!(f, "u{s}"),
+            PrimitiveRustType::Int(s) => write!(f, "i{s}"),
+            PrimitiveRustType::Float(s) => write!(f, "f{s}"),
+            PrimitiveRustType::Usize => write!(f, "usize"),
+            PrimitiveRustType::Bool => write!(f, "bool"),
+            PrimitiveRustType::Char => write!(f, "char"),
+            PrimitiveRustType::Str => write!(f, "str"),
+        }
+    }
+}
+
 impl Display for RustType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RustType::Primitive(s) => match s {
-                PrimitiveRustType::Uint(s) => write!(f, "u{s}"),
-                PrimitiveRustType::Int(s) => write!(f, "i{s}"),
-                PrimitiveRustType::Float(s) => write!(f, "f{s}"),
-                PrimitiveRustType::Usize => write!(f, "usize"),
-                PrimitiveRustType::Bool => write!(f, "bool"),
-                PrimitiveRustType::Char => write!(f, "char"),
-                PrimitiveRustType::Str => write!(f, "str"),
-            },
+            RustType::Primitive(s) => write!(f, "{s}"),
             RustType::Ref(Mutability::Not, ty) => write!(f, "&{ty}"),
             RustType::Ref(Mutability::Mut, ty) => write!(f, "&mut {ty}"),
             RustType::Raw(Mutability::Not, ty) => write!(f, "*const {ty}"),
