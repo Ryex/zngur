@@ -16,3 +16,13 @@ printing = []
 [dependencies]
 indexmap = "2.13.0"
 itertools = "0.11"
+
+[dev-dependencies]
+zngur-parser = { version = "0.11.0", path = "../zngur-parser" }
+expect-test = "1.5.1"
+strip-ansi-escapes = "0.2.0"
+ariadne = "0.3.0"
+
+[[test]]
+name = "round_trip"
+required-features = ["printing"]

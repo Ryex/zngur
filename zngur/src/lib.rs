@@ -8,7 +8,7 @@ use std::{
 };
 
 use zngur_generator::{
-    ParsedZngFile, ZngHeaderGenerator, ZngurGenerator,
+    ParseReport, ParsedZngFile, SourceCache, ZngHeaderGenerator, ZngurGenerator,
     cfg::{InMemoryRustCfgProvider, NullCfg, RustCfgProvider},
 };
 
@@ -160,8 +160,21 @@ impl Zngur {
                 }
             })
         });
+        let mut report_sink = |fatal: bool, report: &ParseReport, source_cache: SourceCache| {
+            if !fatal {
+                // print the report to a string and call the warning sink
+                let mut buf = Vec::new();
+                let _ = report.write(source_cache, &mut buf);
+                let buf = strip_ansi_escapes::strip(buf);
+                let w = String::from_utf8_lossy(&buf);
+                (warning_sink)(&w);
+            } else {
+                let _ = report.eprint(source_cache);
+            }
+        };
         let rust_cfg = self.rust_cfg.unwrap_or_else(|| Box::new(NullCfg));
-        let parse_result = ParsedZngFile::parse(self.zng_file, rust_cfg, &*warning_sink);
+        let parse_result = ParsedZngFile::parse(&self.zng_file, rust_cfg, &mut report_sink);
+
         let crate_name = self
             .crate_name
             .or_else(|| std::env::var("CARGO_PKG_NAME").ok())

@@ -20,7 +20,10 @@ mod template;
 
 use askama::Template;
 pub use rust::RustFile;
-pub use zngur_parser::{ParseResult, ParsedZngFile, cfg};
+pub use zngur_parser::{
+    ParseReport, ParseResult, ParsedZngFile, ReportEntry, ReportSink, SourceCache, SourceId,
+    StdErrReportSink, cfg,
+};
 
 pub use zngur_def::*;
 

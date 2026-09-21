@@ -1,14 +1,14 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    ParseContext, Span, Spanned, Token, ZngParser,
+    ParseContext, ReportSink, Span, Spanned, Token, ZngParser,
     conditional::{MatchPattern, MatchPatternParse, Matchable, MatchableParse},
     spanned,
 };
 use chumsky::prelude::*;
 
 /// A configuration provider, Must be Clone.
-pub trait RustCfgProvider: CloneableCfg {
+pub trait RustCfgProvider {
     /// Gets values associated with a config key if it's present.
     fn get_cfg(&self, key: &str) -> Option<Vec<String>>;
     /// Gets a list of feature names that are enabled
@@ -20,16 +20,15 @@ pub trait RustCfgProvider: CloneableCfg {
     fn get_cfg_pairs(&self) -> Vec<(String, Option<String>)>;
 }
 
-pub trait CloneableCfg {
-    fn clone_box(&self) -> Box<dyn RustCfgProvider>;
-}
-
-impl<T> CloneableCfg for T
-where
-    T: 'static + RustCfgProvider + Clone,
-{
-    fn clone_box(&self) -> Box<dyn RustCfgProvider> {
-        Box::new(self.clone())
+impl<T: RustCfgProvider + ?Sized> RustCfgProvider for Box<T> {
+    fn get_cfg(&self, key: &str) -> Option<Vec<String>> {
+        <T as RustCfgProvider>::get_cfg(self, key)
+    }
+    fn get_features(&self) -> Vec<String> {
+        <T as RustCfgProvider>::get_features(self)
+    }
+    fn get_cfg_pairs(&self) -> Vec<(String, Option<String>)> {
+        <T as RustCfgProvider>::get_cfg_pairs(self)
     }
 }
 
@@ -262,7 +261,7 @@ impl<'src> MatchPatternParse<'src> for CfgPattern<'src> {
 impl<'src> Matchable for CfgConditional<'src> {
     type Pattern = CfgPattern<'src>;
 
-    fn eval(&self, pattern: &Self::Pattern, ctx: &mut ParseContext) -> bool {
+    fn eval<R: ReportSink>(&self, pattern: &Self::Pattern, ctx: &mut ParseContext<R>) -> bool {
         let cfg = ctx.get_config_provider();
 
         let process = |key: &CfgScrutinee<'src>| -> ProcessedCfgScrutinee {
@@ -393,7 +392,11 @@ impl<'src> MatchableParse<'src> for CfgConditional<'src> {
 }
 
 impl CfgPattern<'_> {
-    fn matches(&self, scrutinee: &ProcessedCfgConditional, ctx: &mut ParseContext) -> bool {
+    fn matches<R: ReportSink>(
+        &self,
+        scrutinee: &ProcessedCfgConditional,
+        ctx: &mut ParseContext<R>,
+    ) -> bool {
         use ProcessedCfgConditional as PCC;
         match (self, scrutinee) {
             (Self::Tuple(pats, _), PCC::Single(_)) if pats.len() == 1 => {
