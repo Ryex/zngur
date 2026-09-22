@@ -200,7 +200,9 @@ fn main() {
             if let Some(mangling_base) = mangling_base {
                 zng = zng.with_mangling_base(&mangling_base);
             }
-            zng.generate();
+            if !zng.generate() {
+                std::process::exit(101);
+            };
         }
         Command::MakeZngHeader {
             path,

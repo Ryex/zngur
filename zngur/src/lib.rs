@@ -150,7 +150,7 @@ impl Zngur {
         self
     }
 
-    pub fn generate(self) {
+    pub fn generate(self) -> bool {
         let warning_sink = self.warning_sink.unwrap_or_else(|| {
             Box::new(|w: &str| {
                 // `cargo:warning=` is a line-based directive, so a multi-line warning
@@ -174,6 +174,9 @@ impl Zngur {
         };
         let rust_cfg = self.rust_cfg.unwrap_or_else(|| Box::new(NullCfg));
         let parse_result = ParsedZngFile::parse(&self.zng_file, rust_cfg, &mut report_sink);
+        if parse_result.errors_reported > 0 {
+            return false;
+        }
 
         let crate_name = self
             .crate_name
@@ -257,6 +260,7 @@ impl Zngur {
             }
             zng.generate();
         }
+        true
     }
 }
 

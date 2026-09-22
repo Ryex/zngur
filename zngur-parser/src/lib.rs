@@ -26,8 +26,8 @@ pub struct ParseResult {
     pub spec: ZngurSpec,
     /// All .zng files that were processed (main file + transitive imports)
     pub processed_files: Vec<std::path::PathBuf>,
-    /// if any errors were reported
-    pub errors_reported: bool,
+    /// count of errors reported
+    pub errors_reported: usize,
 }
 
 #[cfg(test)]
@@ -450,14 +450,14 @@ fn checked_merge<T, U, R>(
     }
 }
 
-fn build_template_conflict_report<'reports, R: ReportSink>(
-    ctx: &ParseContext<'_, '_, '_, 'reports, R>,
+fn build_template_conflict_report<R: ReportSink>(
+    ctx: &ParseContext<'_, '_, '_, R>,
     template: &TemplateDef,
     target_ty: &ZngurType,
     template_span: ReportSpan,
     msg: &str,
     conflict: (ConflictSource, ConflictSource),
-) -> ParseReport<'reports> {
+) -> ParseReport<'static> {
     let mut spans = ctx.fetch_spans_global(target_ty);
     let (first, rest) = {
         let first = spans.pop_front().cloned();
@@ -511,13 +511,13 @@ fn build_template_conflict_report<'reports, R: ReportSink>(
     report.finish()
 }
 
-fn build_merge_conflict_report<'reports, R: ReportSink>(
-    ctx: &ParseContext<'_, '_, '_, 'reports, R>,
+fn build_merge_conflict_report<R: ReportSink>(
+    ctx: &ParseContext<'_, '_, '_, R>,
     span: Span,
     msg: &str,
     conflict: (ConflictSource, ConflictSource),
     merge_ctx: Option<MergeContext>,
-) -> ParseReport<'reports> {
+) -> ParseReport<'static> {
     let report_span = ctx.report_span_for_range(span.into_range());
     let mut report = Report::build(ReportKind::Error, report_span.clone())
         .with_message(msg)
@@ -532,9 +532,9 @@ fn build_merge_conflict_report<'reports, R: ReportSink>(
     report.finish()
 }
 
-fn add_conflict_labels<'reports, R: ReportSink>(
-    ctx: &ParseContext<'_, '_, '_, 'reports, R>,
-    report: &mut ariadne::ReportBuilder<'reports, ReportSpan>,
+fn add_conflict_labels<R: ReportSink>(
+    ctx: &ParseContext<'_, '_, '_, R>,
+    report: &mut ariadne::ReportBuilder<'static, ReportSpan>,
     conflict: (ConflictSource, ConflictSource),
     merge_ctx: &MergeContext,
 ) {
@@ -1432,7 +1432,7 @@ impl<'a, T: Clone> OwnedRefMut<'a, T> {
     }
 }
 
-struct ParseContext<'this, 'source, 'cfg, 'reports, R: ReportSink> {
+struct ParseContext<'this, 'source, 'cfg, R: ReportSink> {
     path: &'source std::path::Path,
     source: &'source str,
     source_id: SourceId,
@@ -1441,14 +1441,12 @@ struct ParseContext<'this, 'source, 'cfg, 'reports, R: ReportSink> {
     report_sink: &'cfg mut R,
     /// All .zng files processed during parsing (main file + imports)
     processed_files: OwnedRefMut<'this, Vec<std::path::PathBuf>>,
-    reports: OwnedRefMut<'this, Vec<ReportEntry<'reports>>>,
+    errors_reported: OwnedRefMut<'this, usize>,
     sources: OwnedRefMut<'this, indexmap::IndexMap<std::path::PathBuf, ariadne::Source<String>>>,
     recorded_spans: OwnedRefMut<'this, indexmap::IndexMap<SpanKey, Vec<ReportSpan>>>,
 }
 
-impl<'this, 'source, 'cfg, 'reports, R: ReportSink>
-    ParseContext<'this, 'source, 'cfg, 'reports, R>
-{
+impl<'this, 'source, 'cfg, R: ReportSink> ParseContext<'this, 'source, 'cfg, R> {
     fn new(
         path: &'source std::path::Path,
         source: &'source str,
@@ -1469,7 +1467,7 @@ impl<'this, 'source, 'cfg, 'reports, R: ReportSink>
             cfg_provider: cfg,
             report_sink,
             processed_files,
-            reports: Default::default(),
+            errors_reported: Default::default(),
             sources,
             recorded_spans: Default::default(),
         }
@@ -1479,7 +1477,7 @@ impl<'this, 'source, 'cfg, 'reports, R: ReportSink>
         &'borrowed mut self,
         path: &'src std::path::Path,
         source: &'src str,
-    ) -> ParseContext<'borrowed, 'src, 'borrowed, 'reports, R> {
+    ) -> ParseContext<'borrowed, 'src, 'borrowed, R> {
         let (source_id, _) = self.sources.insert_full(
             path.to_path_buf(),
             ariadne::Source::from(source.to_string()),
@@ -1493,7 +1491,7 @@ impl<'this, 'source, 'cfg, 'reports, R: ReportSink>
             cfg_provider: self.cfg_provider,
             report_sink: self.report_sink,
             processed_files: self.processed_files.into_borrowed(),
-            reports: self.reports.into_borrowed(),
+            errors_reported: self.errors_reported.into_borrowed(),
             sources: self.sources.into_borrowed(),
             recorded_spans: self.recorded_spans.into_borrowed(),
         }
@@ -1517,15 +1515,15 @@ impl<'this, 'source, 'cfg, 'reports, R: ReportSink>
         String::from_utf8(strip_ansi_escapes::strip(buf)).unwrap()
     }
 
-    fn add_fatal_report<'r: 'reports>(&mut self, report: ParseReport<'r>) {
-        self.reports.push(ReportEntry {
+    fn add_fatal_report<'r>(&mut self, report: ParseReport<'r>) {
+        self.sink_report(ReportEntry {
             fatal: true,
             report,
         });
     }
 
-    fn add_report<'r: 'reports>(&mut self, report: ParseReport<'r>) {
-        self.reports.push(ReportEntry {
+    fn add_report<'r>(&mut self, report: ParseReport<'r>) {
+        self.sink_report(ReportEntry {
             fatal: false,
             report,
         });
@@ -1533,7 +1531,7 @@ impl<'this, 'source, 'cfg, 'reports, R: ReportSink>
 
     fn add_errors<'err_src>(&mut self, errs: impl Iterator<Item = Rich<'err_src, String>>) {
         let path = self.source_id;
-        self.reports.extend(errs.map(|e| {
+        for e in errs {
             let e_span = (path.to_owned(), e.span().into_range());
             let report = Report::build(ReportKind::Error, e_span.clone())
                 .with_message(e.to_string())
@@ -1549,11 +1547,11 @@ impl<'this, 'source, 'cfg, 'reports, R: ReportSink>
                         .with_color(Color::Yellow)
                 }))
                 .finish();
-            ReportEntry {
+            self.sink_report(ReportEntry {
                 fatal: true,
                 report,
-            }
-        }));
+            });
+        }
     }
 
     fn add_error_str(&mut self, error: &str, span: Span) {
@@ -1574,35 +1572,33 @@ impl<'this, 'source, 'cfg, 'reports, R: ReportSink>
                 .with_color(Color::Yellow),
         )
         .finish();
-        self.reports.push(ReportEntry {
+        self.sink_report(ReportEntry {
             fatal: false,
             report,
         });
     }
 
-    fn has_errors(&self) -> bool {
-        self.reports.iter().any(|entry| entry.fatal)
+    fn errors(&self) -> usize {
+        *self.errors_reported
     }
 
     /// drains and sinks the current reports
     /// returns true if any errors were reported
-    fn sink_reports(&mut self) -> bool {
+    fn sink_report<'r>(&mut self, report: ReportEntry<'r>) {
         let ParseContext {
             report_sink,
-            reports,
             sources,
+            errors_reported,
             ..
         } = self;
-        let source_cache = SourceCache::new(sources);
-        let mut error_flag = false;
-        for entry in reports.drain(..) {
-            if entry.fatal {
-                error_flag = true
-            }
-            report_sink.sink_report(&entry, source_cache);
+        if report.fatal {
+            let errors_reported = errors_reported.deref_mut();
+            *errors_reported += 1;
         }
-        error_flag
+        let source_cache = SourceCache::new(sources);
+        report_sink.sink_report(&report, source_cache);
     }
+
     fn get_config_provider(&self) -> &dyn RustCfgProvider {
         self.cfg_provider
     }
@@ -1793,7 +1789,7 @@ impl<'a> ParsedZngFile<'a> {
                 .map(|item| process_parsed_item(item, ctx)),
         );
         ProcessedZngFile::new(aliases, items).into_zngur_spec(zngur, ctx);
-        if ctx.has_errors() {
+        if ctx.errors() > 0 {
             return;
         }
 
@@ -1859,7 +1855,7 @@ impl<'a> ParsedZngFile<'a> {
         let mut ctx = ParseContext::new(path, &text, cfg, report_sink);
         Self::parse_into(&mut zngur, &mut ctx, &DefaultImportResolver);
         let spec = zngur.to_zngur(&mut ctx);
-        if ctx.has_errors() {
+        if ctx.errors() > 0 {
             // add report of cfg values used
             ctx.add_report(
                 Report::build(
@@ -1882,7 +1878,7 @@ impl<'a> ParsedZngFile<'a> {
         ParseResult {
             spec,
             processed_files: ctx.get_processed_files(),
-            errors_reported: ctx.sink_reports(),
+            errors_reported: ctx.errors(),
         }
     }
 
@@ -1903,7 +1899,7 @@ impl<'a> ParsedZngFile<'a> {
         ParseResult {
             spec,
             processed_files: ctx.get_processed_files(),
-            errors_reported: ctx.sink_reports(),
+            errors_reported: ctx.errors(),
         }
     }
 }
