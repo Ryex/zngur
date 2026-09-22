@@ -152,7 +152,7 @@ fn catch_parse_fail(
                 crate::ParseResult {
                     spec: ZngurSpec::default(),
                     processed_files: Vec::new(),
-                    errors_reported: true,
+                    errors_reported: 1,
                 }
             }
             Err(e) => std::panic::resume_unwind(e),
@@ -916,7 +916,7 @@ type ::std::string::String {
         32 => {
             #layout(size = 12, align = 4);
         },
-     
+
         _ => {
             // silly size for testing
             #layout(size = 27, align = 9);
@@ -1015,7 +1015,7 @@ fn match_pattern_single_cfg() {
     "bar" | "zigza" => type crate::BarZigZa {
         #layout(size = 1, align = 1);
     }
-    // match two values from a cfg value as a set 
+    // match two values from a cfg value as a set
     "foo" & "baz" => type crate::FooBaz {
         #layout(size = 1, align = 1);
     }
@@ -1127,11 +1127,11 @@ fn match_pattern_multi_cfg_bad_pattern() {
 #unstable(cfg_match)
 
 #match (cfg!(feature.foo), cfg!(target_pointer_width)) {
-    (Some, "32") => type crate::Foo32 { 
+    (Some, "32") => type crate::Foo32 {
         // would succeed if cfg match attempted
         #layout(size = 1, align = 1);
     }
-    "64" => type crate::NoFoo64 { 
+    "64" => type crate::NoFoo64 {
         // will fail: cardinality of pattern and tuple don't match
         #layout(size = 1, align = 1);
     }
@@ -1163,11 +1163,11 @@ fn match_pattern_multi_cfg_bad_pattern2() {
 #unstable(cfg_match)
 
 #match (cfg!(feature.foo), cfg!(target_pointer_width), cfg!(target_feature) ) {
-    (Some, "32", "avx" & "avx2") => type crate::Foo32 { 
+    (Some, "32", "avx" & "avx2") => type crate::Foo32 {
         // would succeed if cfg match attempted
         #layout(size = 1, align = 1);
     }
-    (None, "64") => type crate::NoFoo64 { 
+    (None, "64") => type crate::NoFoo64 {
         // will fail: cardinality of pattern and tuple don't match
         #layout(size = 1, align = 1);
     }
