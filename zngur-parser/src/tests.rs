@@ -88,7 +88,9 @@ where
 }
 
 fn check_success(zng: &str) {
-    let _ = parse_str(zng, NullCfg, |_| {});
+    let _ = parse_str(zng, NullCfg, |msg| {
+        unreachable!("an unexpected warning was emitted: {msg}");
+    });
 }
 
 pub struct ErrorText(pub String);
@@ -152,7 +154,8 @@ fn catch_parse_fail(
                 crate::ParseResult {
                     spec: ZngurSpec::default(),
                     processed_files: Vec::new(),
-                    errors_reported: 1,
+                    errors: 1,
+                    warnings: 0,
                 }
             }
             Err(e) => std::panic::resume_unwind(e),

@@ -200,9 +200,7 @@ fn main() {
             if let Some(mangling_base) = mangling_base {
                 zng = zng.with_mangling_base(&mangling_base);
             }
-            if !zng.generate() {
-                std::process::exit(101);
-            };
+            zng.generate();
         }
         Command::MakeZngHeader {
             path,
@@ -215,7 +213,10 @@ fn main() {
             if let Some(cpp_namespace) = cpp_namespace {
                 hdr = hdr.with_cpp_namespace(&cpp_namespace);
             }
-            hdr.generate();
+            if let Err(err) = hdr.generate() {
+                // panic with err message to preserve old behavior
+                panic!("{err}");
+            }
         }
     }
 }

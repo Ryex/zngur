@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::HashSet,
     fmt::Display,
     ops::{Deref, DerefMut},
     path::Component,
@@ -27,7 +27,9 @@ pub struct ParseResult {
     /// All .zng files that were processed (main file + transitive imports)
     pub processed_files: Vec<std::path::PathBuf>,
     /// count of errors reported
-    pub errors_reported: usize,
+    pub errors: usize,
+    /// count of warnings reported
+    pub warnings: usize,
 }
 
 #[cfg(test)]
@@ -428,15 +430,14 @@ struct MergeContext {
     variant: Option<String>,
 }
 
-fn checked_merge<T, U, R>(
+fn checked_merge<T, U>(
     src: T,
     dst: &mut U,
     span: Span,
-    ctx: &mut ParseContext<R>,
+    ctx: &mut ParseContext,
     src_ctx: Option<MergeContext>,
 ) where
     T: Merge<U>,
-    R: ReportSink,
 {
     match src.merge(dst) {
         Ok(()) => {}
@@ -450,18 +451,19 @@ fn checked_merge<T, U, R>(
     }
 }
 
-fn build_template_conflict_report<R: ReportSink>(
-    ctx: &ParseContext<'_, '_, '_, R>,
+fn build_template_conflict_report(
+    ctx: &ParseContext,
     template: &TemplateDef,
     target_ty: &ZngurType,
     template_span: ReportSpan,
     msg: &str,
     conflict: (ConflictSource, ConflictSource),
 ) -> ParseReport<'static> {
-    let mut spans = ctx.fetch_spans_global(target_ty);
+    let spans = ctx.fetch_spans_global(target_ty);
     let (first, rest) = {
-        let first = spans.pop_front().cloned();
-        (first, spans)
+        let mut it = spans.into_iter();
+        let first = it.next().cloned();
+        (first, it.collect::<Vec<_>>())
     };
 
     let mut report = Report::build(ReportKind::Error, (0usize, 0usize..0))
@@ -511,8 +513,8 @@ fn build_template_conflict_report<R: ReportSink>(
     report.finish()
 }
 
-fn build_merge_conflict_report<R: ReportSink>(
-    ctx: &ParseContext<'_, '_, '_, R>,
+fn build_merge_conflict_report(
+    ctx: &ParseContext,
     span: Span,
     msg: &str,
     conflict: (ConflictSource, ConflictSource),
@@ -532,8 +534,8 @@ fn build_merge_conflict_report<R: ReportSink>(
     report.finish()
 }
 
-fn add_conflict_labels<R: ReportSink>(
-    ctx: &ParseContext<'_, '_, '_, R>,
+fn add_conflict_labels(
+    ctx: &ParseContext,
     report: &mut ariadne::ReportBuilder<'static, ReportSpan>,
     conflict: (ConflictSource, ConflictSource),
     merge_ctx: &MergeContext,
@@ -545,21 +547,24 @@ fn add_conflict_labels<R: ReportSink>(
     let dst_span_key = dst_conflict
         .clone()
         .into_span_key_with_variant(merge_ctx.outer_ty.clone(), merge_ctx.variant.clone());
-    let mut src_spans = ctx.fetch_spans_global(&src_span_key);
-    let mut dst_spans = ctx.fetch_spans_global(&dst_span_key);
+    let src_spans = ctx.fetch_spans_global(&src_span_key);
+    let dst_spans = ctx.fetch_spans_global(&dst_span_key);
     let (src_span, dst_span, first_span, rest) = if src_conflict == dst_conflict {
+        let mut src = src_spans.into_iter();
         (
-            src_spans.pop_back().cloned(),
-            src_spans.pop_back().cloned(),
-            src_spans.pop_front().cloned(),
-            src_spans,
+            src.next_back().cloned(),
+            src.next_back().cloned(),
+            src.next().cloned(),
+            src.collect::<Vec<_>>(),
         )
     } else {
+        let mut src = src_spans.into_iter();
+        let mut dst = dst_spans.into_iter();
         (
-            src_spans.pop_back().cloned(),
-            dst_spans.pop_back().cloned(),
-            dst_spans.pop_front().cloned(),
-            dst_spans,
+            src.next_back().cloned(),
+            dst.next_back().cloned(),
+            dst.next().cloned(),
+            dst.collect::<Vec<_>>(),
         )
     };
     if let Some(src_span) = src_span {
@@ -597,11 +602,11 @@ fn add_conflict_labels<R: ReportSink>(
 }
 
 impl ProcessedItem<'_> {
-    fn add_to_zngur_spec<R: ReportSink>(
+    fn add_to_zngur_spec(
         self,
         r: &mut ZngurSpecBuilder,
         scope: &Scope<'_>,
-        ctx: &mut ParseContext<R>,
+        ctx: &mut ParseContext,
     ) {
         match self {
             ProcessedItem::Mod {
@@ -1171,7 +1176,7 @@ impl ParsedRustPathAndGenerics<'_> {
 }
 
 pub type SourceId = usize;
-pub type ReportSpan = (usize, std::ops::Range<usize>);
+pub type ReportSpan = (SourceId, std::ops::Range<usize>);
 pub type ParseReport<'b> = Report<'b, ReportSpan>;
 
 /// A diagnostic report, tagged with whether it should abort the parse.
@@ -1180,38 +1185,62 @@ pub struct ReportEntry<'b> {
     pub report: ParseReport<'b>,
 }
 
+/// One half of a split key to identify a parsed item type
+/// to store a list of spans for that type. The other half is a [`SourceId`](SourceId).
+///
+/// Uniquely identifying an individual span would require generating
+/// and storing a declaration id in the parser and most spans are only
+/// needed to identify conflicts when merging declarations so identifying
+/// a declaration type is enough
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum PartialSpanKey {
+    /// an [`Import`](zngur_def::Import)
     Import(Box<std::path::Path>),
+    /// a [`Type`](zngur_def::ZngurType)
     Ty(RustType),
+    /// a [`Trait`](zngur_def::ZngurTrait)
     Trait(RustTrait),
+    /// a [`Fn`](zngur_def::ZngurFn)
     Fn(ZngurFn),
 
     // spans likely to be inside others
+    /// a [`LayoutPolicy`](zngur_def::LayoutPolicy)
     /// outer_ty
     Layout(RustType),
+    /// a [`Constructor`](zngur_def::ZngurConstructor)
     /// outer_ty, constructor_sig?
     Constructor(RustType, Option<Vec<(String, RustType)>>),
+    /// a [`CppRef`](zngur_def::CppRef)
     /// outer_ty
     CppRef(RustType),
+    /// a [`CppHeapAllocated`](zngur_def::CppHeapAllocated)
+    /// outer_ty
     CppHeapAllocated(RustType),
+    /// a [`CppStackOwned`](zngur_def::CppStackOwned)
     /// outer_ty
     CppStackOwned(RustType),
+    /// a [`Method`](zngur_def::ZngurMethod) on a
+    /// [`Type`](zngur_def::ZngurType) or [`Trait`](zngur_def::ZngurTrait)
     /// outer_ty, method
     Method(RustType, ZngurMethod),
+    /// a [`Field`](`zngur_def::ZngurField`) on a [`Type`](zngur_def::ZngurType)
+    /// or it's internal [`Variant`](zngur_def::ZngurVariant)
     /// outer_ty, variant?, field_name
     Field(RustType, Option<String>, String),
 }
 
 impl PartialSpanKey {
+    /// combine with a [`SourceId`] to make a full [`SpanKey`]
     fn full_key_with(self, source_id: SourceId) -> SpanKey {
         SpanKey(source_id, self)
     }
 }
 
+/// a full key identifying a list of spans for a given type in a particular source
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct SpanKey(SourceId, PartialSpanKey);
 
+/// trait to impl for types to allow easy span lookup
 trait IntoSpanKey {
     fn into_span_key(&self) -> PartialSpanKey;
 }
@@ -1262,6 +1291,7 @@ impl IntoSpanKey for zngur_def::ZngurFn {
     }
 }
 
+/// trait to impl for type that require variant and type qualifications for lookup
 trait VariantQualifiedSpanKeyExt {
     fn into_span_key_with_variant(
         &self,
@@ -1270,6 +1300,7 @@ trait VariantQualifiedSpanKeyExt {
     ) -> PartialSpanKey;
 }
 
+/// trait to impl for type that require type qualifications for lookup
 trait QualifiedSpanKeyExt {
     fn into_span_key_with(&self, outer_ty: RustType) -> PartialSpanKey;
 }
@@ -1346,6 +1377,13 @@ impl QualifiedSpanKeyExt for zngur_def::ZngurConstructor {
     }
 }
 
+/// A wrapper around both an owned value and a exclusive mutable
+/// reference to that same value. Used to allow nested parse contexts
+/// to internally borrow from their parent.
+///
+/// Implements the important [`AsMut`](AsMut) and
+/// [`Deref`](Deref)/[`DerefMut`](DerefMut) traits to allow the type
+/// to be used transparently.
 enum OwnedRefMut<'a, T> {
     Owned(T),
     Borrowed(&'a mut T),
@@ -1432,26 +1470,35 @@ impl<'a, T: Clone> OwnedRefMut<'a, T> {
     }
 }
 
-struct ParseContext<'this, 'source, 'cfg, R: ReportSink> {
+#[derive(Debug, Default)]
+struct ReportCounter {
+    pub errors: usize,
+    pub warnings: usize,
+}
+
+/// The parse context. Holds references to the current source path and text and tracks
+/// errors and declaration spans. Also holds the [configuration provider](RustCfgProvider)
+/// and [report sink](ReportSink) used for this parse.
+struct ParseContext<'this, 'source, 'cfg> {
     path: &'source std::path::Path,
     source: &'source str,
     source_id: SourceId,
     depth: usize,
     cfg_provider: &'cfg dyn RustCfgProvider,
-    report_sink: &'cfg mut R,
+    report_sink: &'cfg mut dyn ReportSink,
     /// All .zng files processed during parsing (main file + imports)
     processed_files: OwnedRefMut<'this, Vec<std::path::PathBuf>>,
-    errors_reported: OwnedRefMut<'this, usize>,
+    report_counter: OwnedRefMut<'this, ReportCounter>,
     sources: OwnedRefMut<'this, indexmap::IndexMap<std::path::PathBuf, ariadne::Source<String>>>,
     recorded_spans: OwnedRefMut<'this, indexmap::IndexMap<SpanKey, Vec<ReportSpan>>>,
 }
 
-impl<'this, 'source, 'cfg, R: ReportSink> ParseContext<'this, 'source, 'cfg, R> {
+impl<'this, 'source, 'cfg> ParseContext<'this, 'source, 'cfg> {
     fn new(
         path: &'source std::path::Path,
         source: &'source str,
         cfg: &'cfg dyn RustCfgProvider,
-        report_sink: &'cfg mut R,
+        report_sink: &'cfg mut dyn ReportSink,
     ) -> Self {
         let processed_files = OwnedRefMut::Owned(vec![path.to_path_buf()]);
         let mut sources = OwnedRefMut::Owned(indexmap::IndexMap::default());
@@ -1467,17 +1514,19 @@ impl<'this, 'source, 'cfg, R: ReportSink> ParseContext<'this, 'source, 'cfg, R> 
             cfg_provider: cfg,
             report_sink,
             processed_files,
-            errors_reported: Default::default(),
+            report_counter: Default::default(),
             sources,
             recorded_spans: Default::default(),
         }
     }
 
+    /// build a nested parse context for parsing a new source
+    /// to be merged into the current one
     fn nested<'borrowed, 'src>(
         &'borrowed mut self,
         path: &'src std::path::Path,
         source: &'src str,
-    ) -> ParseContext<'borrowed, 'src, 'borrowed, R> {
+    ) -> ParseContext<'borrowed, 'src, 'borrowed> {
         let (source_id, _) = self.sources.insert_full(
             path.to_path_buf(),
             ariadne::Source::from(source.to_string()),
@@ -1491,12 +1540,14 @@ impl<'this, 'source, 'cfg, R: ReportSink> ParseContext<'this, 'source, 'cfg, R> 
             cfg_provider: self.cfg_provider,
             report_sink: self.report_sink,
             processed_files: self.processed_files.into_borrowed(),
-            errors_reported: self.errors_reported.into_borrowed(),
+            report_counter: self.report_counter.into_borrowed(),
             sources: self.sources.into_borrowed(),
             recorded_spans: self.recorded_spans.into_borrowed(),
         }
     }
 
+    /// the [`SourceId`] of the current source which can be fetched from the cache
+    /// retrieved by calling [`source_cache`](Self::source_cache)
     fn source_id(&self) -> SourceId {
         self.source_id
     }
@@ -1515,6 +1566,7 @@ impl<'this, 'source, 'cfg, R: ReportSink> ParseContext<'this, 'source, 'cfg, R> 
         String::from_utf8(strip_ansi_escapes::strip(buf)).unwrap()
     }
 
+    /// Record a report that should invalidate the current parse
     fn add_fatal_report<'r>(&mut self, report: ParseReport<'r>) {
         self.sink_report(ReportEntry {
             fatal: true,
@@ -1522,6 +1574,7 @@ impl<'this, 'source, 'cfg, R: ReportSink> ParseContext<'this, 'source, 'cfg, R> 
         });
     }
 
+    /// Record a non-fatal report
     fn add_report<'r>(&mut self, report: ParseReport<'r>) {
         self.sink_report(ReportEntry {
             fatal: false,
@@ -1529,6 +1582,7 @@ impl<'this, 'source, 'cfg, R: ReportSink> ParseContext<'this, 'source, 'cfg, R> 
         });
     }
 
+    /// Record fatal reports from the passed parse errors
     fn add_errors<'err_src>(&mut self, errs: impl Iterator<Item = Rich<'err_src, String>>) {
         let path = self.source_id;
         for e in errs {
@@ -1554,6 +1608,7 @@ impl<'this, 'source, 'cfg, R: ReportSink> ParseContext<'this, 'source, 'cfg, R> 
         }
     }
 
+    /// Record a fatal report from the passed message and span
     fn add_error_str(&mut self, error: &str, span: Span) {
         self.add_errors([Rich::custom(span, error)].into_iter());
     }
@@ -1578,8 +1633,9 @@ impl<'this, 'source, 'cfg, R: ReportSink> ParseContext<'this, 'source, 'cfg, R> 
         });
     }
 
-    fn errors(&self) -> usize {
-        *self.errors_reported
+    /// a count of the errors recorded by this parse context and any nested ones
+    fn reports(&self) -> &ReportCounter {
+        &self.report_counter
     }
 
     /// drains and sinks the current reports
@@ -1588,12 +1644,14 @@ impl<'this, 'source, 'cfg, R: ReportSink> ParseContext<'this, 'source, 'cfg, R> 
         let ParseContext {
             report_sink,
             sources,
-            errors_reported,
+            report_counter,
             ..
         } = self;
+        let report_counter = report_counter.deref_mut();
         if report.fatal {
-            let errors_reported = errors_reported.deref_mut();
-            *errors_reported += 1;
+            report_counter.errors += 1;
+        } else {
+            report_counter.warnings += 1;
         }
         let source_cache = SourceCache::new(sources);
         report_sink.sink_report(&report, source_cache);
@@ -1607,7 +1665,7 @@ impl<'this, 'source, 'cfg, R: ReportSink> ParseContext<'this, 'source, 'cfg, R> 
         self.processed_files.clone_inner()
     }
 
-    /// record a span for the key as existing in the currently processing file
+    /// Record a span for the key as existing in the currently processing file
     fn record_span<K: IntoSpanKey>(&mut self, key: &K, range: std::ops::Range<usize>) {
         let span = self.report_span_for_range(range);
         use indexmap::map::Entry;
@@ -1627,22 +1685,20 @@ impl<'this, 'source, 'cfg, R: ReportSink> ParseContext<'this, 'source, 'cfg, R> 
         }
     }
 
-    /// transform a range into a span for the currently processing file
+    /// Transform a range into a [report span](ReportSpan) for the currently processing file
     fn report_span_for_range(&self, range: std::ops::Range<usize>) -> ReportSpan {
         (self.source_id.to_owned(), range)
     }
 
-    /// fetch the recorded spans for the item in the currently processing file
-    fn fetch_spans_current<K: IntoSpanKey>(&self, key: &K) -> VecDeque<&ReportSpan> {
+    /// fetch the recorded spans for the item in the currently processing source
+    /// stored in order of declaration
+    fn fetch_spans_current<K: IntoSpanKey>(&self, key: &K) -> Vec<&ReportSpan> {
         self.fetch_spans_for(key, self.source_id)
     }
 
-    /// fetch the recorded spans for the item in the given file
-    fn fetch_spans_for<K: IntoSpanKey>(
-        &self,
-        key: &K,
-        source_id: SourceId,
-    ) -> VecDeque<&ReportSpan> {
+    /// fetch the recorded spans for the item in the given source
+    /// stored in order of declaration
+    fn fetch_spans_for<K: IntoSpanKey>(&self, key: &K, source_id: SourceId) -> Vec<&ReportSpan> {
         self.recorded_spans
             .get(&key.into_span_key().full_key_with(source_id))
             .into_iter()
@@ -1650,8 +1706,9 @@ impl<'this, 'source, 'cfg, R: ReportSink> ParseContext<'this, 'source, 'cfg, R> 
             .collect()
     }
 
-    /// fetch the recorded spans for the item in all files
-    fn fetch_spans_global<K: IntoSpanKey>(&self, key: &K) -> VecDeque<&ReportSpan> {
+    /// fetch the recorded spans for the item in all sources
+    /// stored in order of declaration
+    fn fetch_spans_global<K: IntoSpanKey>(&self, key: &K) -> Vec<&ReportSpan> {
         let partial = key.into_span_key();
         self.recorded_spans
             .iter()
@@ -1701,8 +1758,9 @@ impl<T: ImportResolver + ?Sized> ImportResolver for Box<T> {
     }
 }
 
-/// a `ariadne::Cache<SourceId>` compatible source cache
-/// internally maps `SourceId` to a `ariadne::Source<String>` borrowed from the `ParseContext`
+/// a [`ariadne::Cache<SourceId>`] compatible source cache
+/// internally maps a [`SourceId`] to a [`ariadne::Source<String>`]
+/// borrowed from the [`ParseContext`]
 #[derive(Debug, Clone, Copy)]
 pub struct SourceCache<'c> {
     sources: &'c indexmap::IndexMap<std::path::PathBuf, ariadne::Source<String>>,
@@ -1747,7 +1805,7 @@ where
     }
 }
 
-/// a `ReportSink` that prints to `stderr`
+/// a [`ReportSink`] that prints to `stderr`
 pub struct StdErrReportSink<const ERRORS: bool = true, const WARNINGS: bool = true>;
 
 impl<const ERRORS: bool, const WARNINGS: bool> ReportSink for StdErrReportSink<ERRORS, WARNINGS> {
@@ -1759,9 +1817,9 @@ impl<const ERRORS: bool, const WARNINGS: bool> ReportSink for StdErrReportSink<E
 }
 
 impl<'a> ParsedZngFile<'a> {
-    fn parse_into<R: ReportSink>(
+    fn parse_into(
         zngur: &mut ZngurSpecBuilder,
-        ctx: &mut ParseContext<R>,
+        ctx: &mut ParseContext,
         resolver: &impl ImportResolver,
     ) {
         let (tokens, errs) = lexer().parse(ctx.source).into_output_errors();
@@ -1789,7 +1847,7 @@ impl<'a> ParsedZngFile<'a> {
                 .map(|item| process_parsed_item(item, ctx)),
         );
         ProcessedZngFile::new(aliases, items).into_zngur_spec(zngur, ctx);
-        if ctx.errors() > 0 {
+        if ctx.reports().errors > 0 {
             return;
         }
 
@@ -1855,7 +1913,7 @@ impl<'a> ParsedZngFile<'a> {
         let mut ctx = ParseContext::new(path, &text, cfg, report_sink);
         Self::parse_into(&mut zngur, &mut ctx, &DefaultImportResolver);
         let spec = zngur.to_zngur(&mut ctx);
-        if ctx.errors() > 0 {
+        if ctx.reports().errors > 0 {
             // add report of cfg values used
             ctx.add_report(
                 Report::build(
@@ -1878,7 +1936,8 @@ impl<'a> ParsedZngFile<'a> {
         ParseResult {
             spec,
             processed_files: ctx.get_processed_files(),
-            errors_reported: ctx.errors(),
+            errors: ctx.reports().errors,
+            warnings: ctx.reports().warnings,
         }
     }
 
@@ -1899,7 +1958,8 @@ impl<'a> ParsedZngFile<'a> {
         ParseResult {
             spec,
             processed_files: ctx.get_processed_files(),
-            errors_reported: ctx.errors(),
+            errors: ctx.reports().errors,
+            warnings: ctx.reports().warnings,
         }
     }
 }
@@ -1911,9 +1971,9 @@ pub(crate) enum ProcessedItemOrAlias<'a> {
     ChildItems(Vec<ProcessedItemOrAlias<'a>>),
 }
 
-fn process_parsed_item<'a, R: ReportSink>(
+fn process_parsed_item<'a>(
     item: ParsedItem<'a>,
-    ctx: &mut ParseContext<R>,
+    ctx: &mut ParseContext,
 ) -> ProcessedItemOrAlias<'a> {
     use ProcessedItemOrAlias as Ret;
     match item {
@@ -1990,11 +2050,7 @@ impl<'a> ProcessedZngFile<'a> {
         ProcessedZngFile { aliases, items }
     }
 
-    fn into_zngur_spec<R: ReportSink>(
-        self,
-        zngur: &mut ZngurSpecBuilder,
-        ctx: &mut ParseContext<R>,
-    ) {
+    fn into_zngur_spec(self, zngur: &mut ZngurSpecBuilder, ctx: &mut ParseContext) {
         let root_scope = Scope::new_root(self.aliases);
 
         for item in self.items {
@@ -2017,7 +2073,7 @@ struct ZngurSpecBuilder {
 }
 
 impl ZngurSpecBuilder {
-    fn to_zngur<R: ReportSink>(self, ctx: &mut ParseContext<R>) -> ZngurSpec {
+    fn to_zngur(self, ctx: &mut ParseContext) -> ZngurSpec {
         let ZngurSpecBuilder {
             mut spec,
             templates,
@@ -2057,10 +2113,11 @@ impl ZngurSpecBuilder {
                 ty.wellknown_traits.push(ZngurWellknownTrait::Drop);
             }
             if ty.layout.is_none() {
-                let mut spans = ctx.fetch_spans_global(ty);
+                let spans = ctx.fetch_spans_global(ty);
                 let (first, rest) = {
-                    let first = spans.pop_front().cloned();
-                    (first, spans)
+                    let mut it = spans.into_iter();
+                    let first = it.next().cloned();
+                    (first, it.collect::<Vec<_>>())
                 };
                 let mut report = Report::build(ReportKind::Error, (0, 0usize..0)).with_message(format!(
                     "No layout policy found for type {}.",
@@ -3025,7 +3082,7 @@ fn path<'a>() -> impl Parser<'a, ParserInput<'a>, ParsedPath<'a>, ZngParserExtra
 impl<'a> conditional::BodyItem for crate::ParsedTypeItem<'a> {
     type Processed = Self;
 
-    fn process<R: ReportSink>(self, _ctx: &mut ParseContext<R>) -> Self::Processed {
+    fn process(self, _ctx: &mut ParseContext) -> Self::Processed {
         self
     }
 }
@@ -3033,7 +3090,7 @@ impl<'a> conditional::BodyItem for crate::ParsedTypeItem<'a> {
 impl<'a> conditional::BodyItem for crate::ParsedItem<'a> {
     type Processed = ProcessedItemOrAlias<'a>;
 
-    fn process<R: ReportSink>(self, ctx: &mut ParseContext<R>) -> Self::Processed {
+    fn process(self, ctx: &mut ParseContext) -> Self::Processed {
         crate::process_parsed_item(self, ctx)
     }
 }

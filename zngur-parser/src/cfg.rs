@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    ParseContext, ReportSink, Span, Spanned, Token, ZngParser,
+    ParseContext, Span, Spanned, Token, ZngParser,
     conditional::{MatchPattern, MatchPatternParse, Matchable, MatchableParse},
     spanned,
 };
@@ -261,7 +261,7 @@ impl<'src> MatchPatternParse<'src> for CfgPattern<'src> {
 impl<'src> Matchable for CfgConditional<'src> {
     type Pattern = CfgPattern<'src>;
 
-    fn eval<R: ReportSink>(&self, pattern: &Self::Pattern, ctx: &mut ParseContext<R>) -> bool {
+    fn eval(&self, pattern: &Self::Pattern, ctx: &mut ParseContext) -> bool {
         let cfg = ctx.get_config_provider();
 
         let process = |key: &CfgScrutinee<'src>| -> ProcessedCfgScrutinee {
@@ -392,11 +392,7 @@ impl<'src> MatchableParse<'src> for CfgConditional<'src> {
 }
 
 impl CfgPattern<'_> {
-    fn matches<R: ReportSink>(
-        &self,
-        scrutinee: &ProcessedCfgConditional,
-        ctx: &mut ParseContext<R>,
-    ) -> bool {
+    fn matches(&self, scrutinee: &ProcessedCfgConditional, ctx: &mut ParseContext) -> bool {
         use ProcessedCfgConditional as PCC;
         match (self, scrutinee) {
             (Self::Tuple(pats, _), PCC::Single(_)) if pats.len() == 1 => {

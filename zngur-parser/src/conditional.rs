@@ -1,4 +1,4 @@
-use crate::{BoxedZngParser, ParseContext, ReportSink, Span, Spanned, Token, ZngParser, spanned};
+use crate::{BoxedZngParser, ParseContext, Span, Spanned, Token, ZngParser, spanned};
 use chumsky::prelude::*;
 
 /// a type that can be matched against a Pattern
@@ -6,7 +6,7 @@ pub trait Matchable: core::fmt::Debug + Clone + PartialEq + Eq {
     /// A pattern type to match Self against
     type Pattern: MatchPattern;
     /// compare self to `Pattern`
-    fn eval<R: ReportSink>(&self, pattern: &Self::Pattern, ctx: &mut ParseContext<R>) -> bool;
+    fn eval(&self, pattern: &Self::Pattern, ctx: &mut ParseContext) -> bool;
 }
 
 /// a type that can be matched against a Pattern
@@ -38,7 +38,7 @@ pub trait BodyItem: core::fmt::Debug + Clone + PartialEq + Eq {
     type Processed;
 
     /// Transform self into `Processed` type
-    fn process<R: ReportSink>(self, ctx: &mut ParseContext<R>) -> Self::Processed;
+    fn process(self, ctx: &mut ParseContext) -> Self::Processed;
 }
 
 /// a type that hold the body of a conditional statement
@@ -67,21 +67,18 @@ pub trait ConditionBodyCardinality<Item: BodyItem>:
         block: Self::Block,
     ) -> Self::Body<Pattern>;
     /// transform a block into it's processed result
-    fn pass_block<R: ReportSink>(
-        block: &Self::Block,
-        ctx: &mut ParseContext<R>,
-    ) -> Self::EvalResult;
+    fn pass_block(block: &Self::Block, ctx: &mut ParseContext) -> Self::EvalResult;
     /// transform a body into it's processed result
-    fn pass_body<Pattern: MatchPattern, R: ReportSink>(
+    fn pass_body<Pattern: MatchPattern>(
         body: &Self::Body<Pattern>,
-        ctx: &mut ParseContext<R>,
+        ctx: &mut ParseContext,
     ) -> Self::EvalResult;
 }
 
 /// a trait for a conditional item in a parsed spec
 pub trait ConditionalItem<Item: BodyItem, Cardinality: ConditionBodyCardinality<Item>> {
     /// Evaluate the statement and produce resulting items of the first arm that passes
-    fn eval<R: ReportSink>(&self, ctx: &mut ParseContext<R>) -> Option<Cardinality::EvalResult>;
+    fn eval(&self, ctx: &mut ParseContext) -> Option<Cardinality::EvalResult>;
 }
 
 /// a body of a conditional statement that holds 0..N Items
@@ -138,10 +135,7 @@ impl<Item: BodyItem> ConditionBodyCardinality<Item> for SingleItem {
         ConditionBodySingle { pattern, block }
     }
 
-    fn pass_block<R: ReportSink>(
-        block: &Self::Block,
-        ctx: &mut ParseContext<R>,
-    ) -> Self::EvalResult {
+    fn pass_block(block: &Self::Block, ctx: &mut ParseContext) -> Self::EvalResult {
         block.clone().map(|item| {
             let span = item.span;
             Spanned {
@@ -151,9 +145,9 @@ impl<Item: BodyItem> ConditionBodyCardinality<Item> for SingleItem {
         })
     }
 
-    fn pass_body<Pattern: MatchPattern, R: ReportSink>(
+    fn pass_body<Pattern: MatchPattern>(
         body: &Self::Body<Pattern>,
-        ctx: &mut ParseContext<R>,
+        ctx: &mut ParseContext,
     ) -> Self::EvalResult {
         Self::pass_block(&body.block, ctx)
     }
@@ -183,10 +177,7 @@ impl<Item: BodyItem> ConditionBodyCardinality<Item> for NItems {
         ConditionBodyMany { pattern, block }
     }
 
-    fn pass_block<R: ReportSink>(
-        block: &Self::Block,
-        ctx: &mut ParseContext<R>,
-    ) -> Self::EvalResult {
+    fn pass_block(block: &Self::Block, ctx: &mut ParseContext) -> Self::EvalResult {
         block
             .iter()
             .cloned()
@@ -200,9 +191,9 @@ impl<Item: BodyItem> ConditionBodyCardinality<Item> for NItems {
             .collect()
     }
 
-    fn pass_body<Pattern: MatchPattern, R: ReportSink>(
+    fn pass_body<Pattern: MatchPattern>(
         body: &Self::Body<Pattern>,
-        ctx: &mut ParseContext<R>,
+        ctx: &mut ParseContext,
     ) -> Self::EvalResult {
         Self::pass_block(&body.block, ctx)
     }
@@ -223,7 +214,7 @@ pub enum ConditionGuard<Scrutinee: Matchable> {
 }
 
 impl<Scrutinee: Matchable> ConditionGuard<Scrutinee> {
-    fn eval<R: ReportSink>(&self, ctx: &mut ParseContext<R>) -> bool {
+    fn eval(&self, ctx: &mut ParseContext) -> bool {
         match self {
             Self::Single {
                 scrutinee, pattern, ..
@@ -278,9 +269,9 @@ pub struct ConditionMatch<
 impl<Scrutinee: Matchable, Item: BodyItem, Cardinality: ConditionBodyCardinality<Item>>
     ConditionalItem<Item, Cardinality> for ConditionBranch<Scrutinee, Item, Cardinality>
 {
-    fn eval<R: ReportSink>(
+    fn eval(
         &self,
-        ctx: &mut ParseContext<R>,
+        ctx: &mut ParseContext,
     ) -> Option<<Cardinality as ConditionBodyCardinality<Item>>::EvalResult> {
         if self.guard.eval(ctx) {
             return Some(<Cardinality as ConditionBodyCardinality<Item>>::pass_block(
@@ -295,9 +286,9 @@ impl<Scrutinee: Matchable, Item: BodyItem, Cardinality: ConditionBodyCardinality
 impl<Scrutinee: Matchable, Item: BodyItem, Cardinality: ConditionBodyCardinality<Item>>
     ConditionalItem<Item, Cardinality> for ConditionMatch<Scrutinee, Item, Cardinality>
 {
-    fn eval<R: ReportSink>(
+    fn eval(
         &self,
-        ctx: &mut ParseContext<R>,
+        ctx: &mut ParseContext,
     ) -> Option<<Cardinality as ConditionBodyCardinality<Item>>::EvalResult> {
         for arm in &self.arms {
             let pattern = arm.inner.pattern();
@@ -314,9 +305,9 @@ impl<Scrutinee: Matchable, Item: BodyItem, Cardinality: ConditionBodyCardinality
 impl<Scrutinee: Matchable, Item: BodyItem, Cardinality: ConditionBodyCardinality<Item>>
     ConditionalItem<Item, Cardinality> for ConditionIf<Scrutinee, Item, Cardinality>
 {
-    fn eval<R: ReportSink>(
+    fn eval(
         &self,
-        ctx: &mut ParseContext<R>,
+        ctx: &mut ParseContext,
     ) -> Option<<Cardinality as ConditionBodyCardinality<Item>>::EvalResult> {
         for arm in &self.arms {
             if let Some(result) = arm.eval(ctx) {
@@ -346,9 +337,9 @@ pub enum Condition<
 impl<Scrutinee: Matchable, Item: BodyItem, Cardinality: ConditionBodyCardinality<Item>>
     ConditionalItem<Item, Cardinality> for Condition<Scrutinee, Item, Cardinality>
 {
-    fn eval<R: ReportSink>(
+    fn eval(
         &self,
-        ctx: &mut ParseContext<R>,
+        ctx: &mut ParseContext,
     ) -> Option<<Cardinality as ConditionBodyCardinality<Item>>::EvalResult> {
         match self {
             Self::If(item) => item.eval(ctx),
