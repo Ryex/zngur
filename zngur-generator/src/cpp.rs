@@ -596,7 +596,7 @@ impl CppTypeDefinition {
         }
     }
 
-    pub fn render_make_box_ref(&self, name: &str, namespace: &str, crate_name: &str) -> String {
+    pub fn render_ref_mut_dyn_ctor(&self, namespace: &str, crate_name: &str) -> String {
         use crate::rust::IntoCpp;
         use itertools::Itertools;
         match &self.from_trait_ref {
@@ -606,10 +606,7 @@ impl CppTypeDefinition {
                     .iter()
                     .map(|x| x.into_cpp(namespace, crate_name))
                     .join(", ");
-                format!(
-                    "inline {}(::std::function<{} ({})> f);",
-                    name, out_ty, in_tys
-                )
+                format!("inline RefMut(::std::function<{} ({})> f);", out_ty, in_tys)
             }
             Some(tr @ RustTrait::Normal(_)) => {
                 format!(
@@ -621,12 +618,7 @@ impl CppTypeDefinition {
         }
     }
 
-    pub fn render_make_box_ref_only(
-        &self,
-        name: &str,
-        namespace: &str,
-        crate_name: &str,
-    ) -> String {
+    pub fn render_ref_dyn_ctor(&self, namespace: &str, crate_name: &str) -> String {
         use crate::rust::IntoCpp;
         use itertools::Itertools;
         match &self.from_trait_ref {
@@ -636,10 +628,7 @@ impl CppTypeDefinition {
                     .iter()
                     .map(|x| x.into_cpp(namespace, crate_name))
                     .join(", ");
-                format!(
-                    "inline {}(::std::function<{} ({})> f);",
-                    name, out_ty, in_tys
-                )
+                format!("inline Ref(::std::function<{} ({})> f);", out_ty, in_tys)
             }
             Some(tr @ RustTrait::Normal(_)) => {
                 format!("inline Ref({}& arg);", tr.into_cpp(namespace, crate_name))

@@ -1,0 +1,5 @@
+//@ pass
+
+type dyn Fn(i32) -> bool {
+    wellknown_traits(?Sized);
+}
