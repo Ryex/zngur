@@ -489,11 +489,13 @@ impl Display for RustType {
             RustType::Tuple(v) => write!(f, "({})", v.iter().join(", ")),
             RustType::Adt(pg) => write!(f, "{pg}"),
             RustType::Dyn(tr, marker_bounds) => {
-                write!(f, "dyn {tr}")?;
-                for mb in marker_bounds {
-                    write!(f, " + {mb}")?;
+                // An auto trait binds the `+` outside a surrounding `&`/`*mut`/cast, so a dyn
+                // type with markers needs parentheses to stay one type: `&(dyn A + Send)`.
+                if marker_bounds.is_empty() {
+                    write!(f, "dyn {tr}")
+                } else {
+                    write!(f, "(dyn {tr} + {})", marker_bounds.iter().join(" + "))
                 }
-                Ok(())
             }
             RustType::Impl(tr, marker_bounds) => {
                 write!(f, "impl {tr}")?;
