@@ -1,0 +1,5 @@
+//@ pass
+
+type dyn ::std::any::Any + ::std::marker::Send {
+    wellknown_traits(?Sized, Debug);
+}
