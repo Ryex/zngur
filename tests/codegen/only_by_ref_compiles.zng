@@ -1,0 +1,7 @@
+//@ pass
+
+type crate::RefOnly {
+    #only_by_ref;
+
+    field a (offset = 0, type = i32);
+}
